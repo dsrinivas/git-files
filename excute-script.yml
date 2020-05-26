@@ -1,0 +1,63 @@
+---
+- name: Play to execute and upload to get
+  hosts: localhost 
+  connection: local
+  become_user: ds 
+  ignore_errors: yes
+  tasks:
+    - name: Install cifs client package
+      become: yes
+      become_user: root
+      yum:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - cifs-utils
+        - samba-client  
+    
+    - name: download git repo
+      become: true
+      shell: git clone https://github.com/dsrinivas/git-files.git
+      ignore_errors: yes
+
+    - name: backup files with time stamp in git-files locally
+      become: true
+      shell: cd git-files && cp NewInventoryAWX.csv NewInventoryAWX.csv-{{ansible_date_time.date}}; cp example.ini example.ini-{{ansible_date_time.date}}
+      ignore_errors: yes
+
+    - name: remove file first
+      shell: rm -rf git-files/NewInventoryAWX.csv && rm -rf git-files/example
+
+    - name: download file from samba share
+      shell: cd git-files && smbget -a smb://172.25.250.254/public/NewInventoryAWX.csv
+
+    - name: Convert csv file to hosts
+      shell: cd git-files && python sampleScript.py NewInventoryAWX.csv
+
+    - name: upload host file to git server
+      shell: cd git-files && sh git.sh 
+
+    - name: mount smb share
+      become: true
+      become_user: root
+      shell:  mount.cifs //172.25.250.254/public /mnt -o guest
+
+    - name: backup file with time stamp
+      become: true
+      become_user: root
+      shell: cp  /mnt/NewInventoryAWX.csv /mnt/NewInventoryAWX.csv-{{ansible_date_time.date}} 
+
+    - name: remove the files on samba share
+      become: true
+      become_user: root
+      file:
+        path: "{{ item }}"
+        state: absent
+        backup: yes 
+      with_items:
+        - /mnt/NewInventoryAWX.csv
+    
+    - name: umount
+      become: true
+      become_user: root
+      shell: umount /mnt
